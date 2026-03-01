@@ -5,7 +5,8 @@ export async function GET() {
   try {
     const users = await getUsers()
     return NextResponse.json(users)
-  } catch {
+  } catch (err) {
+    console.error('[GET /api/users]', err)
     return NextResponse.json({ error: 'Errore nel recupero utenti' }, { status: 500 })
   }
 }
