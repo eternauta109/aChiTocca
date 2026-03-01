@@ -1,60 +1,59 @@
-import fs from 'fs'
-import path from 'path'
-import { v4 as uuidv4 } from 'uuid'
+import { initializeApp, getApps, cert } from 'firebase-admin/app'
+import { getFirestore, FieldValue, Timestamp, type DocumentData } from 'firebase-admin/firestore'
 import type { User } from './types'
 
-interface DB {
-  users: User[]
-}
-
-const DB_PATH = path.join(process.cwd(), 'data', 'db.json')
-
-function readDB(): DB {
-  if (!fs.existsSync(DB_PATH)) {
-    const initial: DB = { users: [] }
-    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true })
-    fs.writeFileSync(DB_PATH, JSON.stringify(initial, null, 2))
-    return initial
+function getDb() {
+  if (!getApps().length) {
+    initializeApp({
+      credential: cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      }),
+    })
   }
-  return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')) as DB
+  return getFirestore()
 }
 
-function writeDB(db: DB): void {
-  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2))
+function mapDoc(id: string, data: DocumentData): User {
+  return {
+    id,
+    name: data.name as string,
+    coffeeCount: data.coffeeCount as number,
+    lastBought:
+      data.lastBought instanceof Timestamp
+        ? data.lastBought.toDate().toISOString()
+        : null,
+  }
 }
 
-export function getUsers(): User[] {
-  return readDB().users
+export async function getUsers(): Promise<User[]> {
+  const snapshot = await getDb().collection('users').get()
+  return snapshot.docs.map((doc) => mapDoc(doc.id, doc.data()))
 }
 
-export function addUser(name: string): User {
-  const db = readDB()
-  const user: User = {
-    id: uuidv4(),
+export async function addUser(name: string): Promise<User> {
+  const ref = await getDb().collection('users').add({
     name: name.trim(),
     coffeeCount: 0,
     lastBought: null,
-  }
-  db.users.push(user)
-  writeDB(db)
-  return user
+  })
+  const doc = await ref.get()
+  return mapDoc(doc.id, doc.data()!)
 }
 
-export function deleteUser(id: string): boolean {
-  const db = readDB()
-  const index = db.users.findIndex((u) => u.id === id)
-  if (index === -1) return false
-  db.users.splice(index, 1)
-  writeDB(db)
+export async function deleteUser(id: string): Promise<boolean> {
+  await getDb().collection('users').doc(id).delete()
   return true
 }
 
-export function recordCoffee(userId: string): User | null {
-  const db = readDB()
-  const user = db.users.find((u) => u.id === userId)
-  if (!user) return null
-  user.coffeeCount++
-  user.lastBought = new Date().toISOString()
-  writeDB(db)
-  return user
+export async function recordCoffee(userId: string): Promise<User | null> {
+  const ref = getDb().collection('users').doc(userId)
+  await ref.update({
+    coffeeCount: FieldValue.increment(1),
+    lastBought: Timestamp.now(),
+  })
+  const doc = await ref.get()
+  if (!doc.exists) return null
+  return mapDoc(doc.id, doc.data()!)
 }

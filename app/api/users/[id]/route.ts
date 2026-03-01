@@ -3,7 +3,7 @@ import { deleteUser } from '@/lib/db'
 
 export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
   try {
-    const deleted = deleteUser(params.id)
+    const deleted = await deleteUser(params.id)
     if (!deleted) {
       return NextResponse.json({ error: 'Utente non trovato' }, { status: 404 })
     }
